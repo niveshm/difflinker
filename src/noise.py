@@ -97,6 +97,7 @@ class PredefinedNoiseSchedule(torch.nn.Module):
     def __init__(self, noise_schedule, timesteps, precision, device='cpu'):
         super(PredefinedNoiseSchedule, self).__init__()
         self.timesteps = timesteps
+        self.device = device
 
         if noise_schedule == 'cosine':
             alphas2 = cosine_beta_schedule(timesteps)
@@ -121,10 +122,10 @@ class PredefinedNoiseSchedule(torch.nn.Module):
 
         self.gamma = torch.nn.Parameter(
             torch.from_numpy(-log_alphas2_to_sigmas2).float().to(device),
-            requires_grad=False).to(device)
+            requires_grad=False)
 
     def forward(self, t):
-        t_int = torch.round(t * self.timesteps).long()
+        t_int = torch.round(t * self.timesteps).long().to(self.device)
         return self.gamma[t_int]
 
 
