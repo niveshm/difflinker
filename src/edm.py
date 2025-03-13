@@ -53,6 +53,9 @@ class EDM(torch.nn.Module):
         t = t_int / self.T
         s = s_int / self.T
 
+        # Ensure t_int is on the same device as self.gamma
+        t_int = t_int.to(self.gamma.device)
+
         # Masks for t=0 and t>0
         t_is_zero = (t_int == 0).squeeze().float()
         t_is_not_zero = 1 - t_is_zero
@@ -479,6 +482,9 @@ class InpaintingEDM(EDM):
         s_int = t_int - 1
         t = t_int / self.T
         s = s_int / self.T
+
+        # Ensure t_int is on the same device as self.gamma
+        t_int = t_int.to(self.gamma.device)
 
         # Masks for t=0 and t>0
         t_is_zero = (t_int == 0).squeeze().float()
