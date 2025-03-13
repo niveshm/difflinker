@@ -23,13 +23,14 @@ class EDM(torch.nn.Module):
             loss_type='vlb',
             norm_values=(1., 1., 1.),
             norm_biases=(None, 0., 0.),
+            device='cpu'
     ):
         super().__init__()
         if noise_schedule == 'learned':
             assert loss_type == 'vlb', 'A noise schedule can only be learned with a vlb objective'
             self.gamma = GammaNetwork()
         else:
-            self.gamma = PredefinedNoiseSchedule(noise_schedule, timesteps=timesteps, precision=noise_precision)
+            self.gamma = PredefinedNoiseSchedule(noise_schedule, timesteps=timesteps, precision=noise_precision, device=device)
 
         self.dynamics = dynamics
         self.in_node_nf = in_node_nf

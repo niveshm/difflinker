@@ -94,7 +94,7 @@ class PredefinedNoiseSchedule(torch.nn.Module):
     Predefined noise schedule. Essentially creates a lookup array for predefined (non-learned) noise schedules.
     """
 
-    def __init__(self, noise_schedule, timesteps, precision):
+    def __init__(self, noise_schedule, timesteps, precision, device='cpu'):
         super(PredefinedNoiseSchedule, self).__init__()
         self.timesteps = timesteps
 
@@ -121,7 +121,7 @@ class PredefinedNoiseSchedule(torch.nn.Module):
 
         self.gamma = torch.nn.Parameter(
             torch.from_numpy(-log_alphas2_to_sigmas2).float(),
-            requires_grad=False)
+            requires_grad=False).to(device)
 
     def forward(self, t):
         t_int = torch.round(t * self.timesteps).long()
