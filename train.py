@@ -36,7 +36,7 @@ def get_model(hyperparams):
     # n_dims = 3
     # in_node_nf = 9 #const.GEOM_NUMBER_OF_ATOM_TYPES + const.NUMBER_OF_ATOM_TYPES
 
-    dynamics = Dynamics(n_dims=hyperparams['n_dims'], in_node_nf=hyperparams['in_node_nf'], context_node_nf=hyperparams['context_node_nf'], hidden_nf=hyperparams['hidden_nf'], n_layers=hyperparams['n_layers'])
+    dynamics = Dynamics(n_dims=hyperparams['n_dims'], in_node_nf=hyperparams['in_node_nf'], context_node_nf=hyperparams['context_node_nf'], hidden_nf=hyperparams['hidden_nf'], n_layers=hyperparams['n_layers'], device=device)
 
     edm = EDM(n_dims=3, in_node_nf=hyperparams['in_node_nf'], loss_type=hyperparams['diffusion_loss_type'], timesteps=hyperparams['diffusion_steps'], noise_schedule=hyperparams['diffusion_noise_schedule'], noise_precision=hyperparams['diffusion_noise_precision'], dynamics=dynamics, norm_values=hyperparams['normalize_factors'])
 
@@ -44,6 +44,7 @@ def get_model(hyperparams):
 
 def main(hyperparams, epochs=1000):
     # dataset = torch.load('dataset/geom_multifrag_train.pt', map_location='cpu')
+    print('Started Training')
 
     train_dataset = ZincDataset('dataset', 'geom_multifrag_train', device)
     val_dataset = ZincDataset('dataset', hyperparams['val_data_prefix'], device)
