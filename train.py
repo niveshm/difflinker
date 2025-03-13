@@ -6,6 +6,31 @@ from src.edm import EDM
 from src.egnn import Dynamics
 from tqdm import tqdm
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def preprocess_data(data, hyperparams):
+    x = data['positions']
+    h = data['one_hot']
+    node_mask = data['atom_mask']
+    edge_mask = data['edge_mask']
+    anchors = data['anchors']
+    fragment_mask = data['fragment_mask']
+    linker_mask = data['linker_mask']
+    context = fragment_mask
+    if hyperparams['anchors_context']:
+        context = torch.cat([anchors, fragment_mask], dim=-1)
+    else:
+        context = fragment_mask
+    center_of_mass_mask = fragment_mask if hyperparams['center_of_mass'] == 'fragments' else anchors
+
+    x = utils.remove_partial_mean_with_mask(x, node_mask, center_of_mass_mask)
+    utils.assert_partial_mean_zero_with_mask(x, node_mask, center_of_mass_mask)
+
+    if hyperparams['data_augmentation']:
+        x = utils.random_rotation(x)
+    
+    return x, h, node_mask, fragment_mask, linker_mask, edge_mask, context
+
 def get_model(hyperparams):
     
     # n_dims = 3
@@ -17,59 +42,70 @@ def get_model(hyperparams):
 
     return edm
 
-def main(hyperparams):
+def main(hyperparams, epochs=1000):
     # dataset = torch.load('dataset/geom_multifrag_train.pt', map_location='cpu')
 
-    train_dataset = ZincDataset('dataset', 'geom_multifrag_train', 'cpu')
-    # val_dataset = ZincDataset('dataset/geom_multifrag_val.pt', 'geom_multifrag_val', 'cpu')
+    train_dataset = ZincDataset('dataset', 'geom_multifrag_train', device)
+    val_dataset = ZincDataset('dataset', hyperparams['val_data_prefix'], device)
 
-    train_dataloader = get_dataloader(train_dataset, batch_size=hyperparams['batch_size'], collate_fn=collate)
+    train_dataloader = get_dataloader(train_dataset, batch_size=hyperparams['batch_size'], collate_fn=collate, shuffle=True)
+    val_dataloader = get_dataloader(val_dataset, batch_size=hyperparams['batch_size'], collate_fn=collate, shuffle=False)
     model = get_model(hyperparams)
     optimizer = torch.optim.AdamW(model.parameters(), lr=hyperparams['lr'], amsgrad=True, weight_decay=1e-12)
 
+    min_val_loss = 1e9
 
-    #train loop
-    for i, data in tqdm(enumerate(train_dataloader)):
-        optimizer.zero_grad()
-        x = data['positions']
-        h = data['one_hot']
-        node_mask = data['atom_mask']
-        edge_mask = data['edge_mask']
-        anchors = data['anchors']
-        fragment_mask = data['fragment_mask']
-        linker_mask = data['linker_mask']
-        context = fragment_mask
-        if hyperparams['anchors_context']:
-            context = torch.cat([anchors, fragment_mask], dim=-1)
-        else:
-            context = fragment_mask
-        center_of_mass_mask = fragment_mask if hyperparams['center_of_mass'] == 'fragments' else anchors
+    for epoch in range(epochs):
+        print("Epoch: ", epoch)
+        #train loop
+        model.train()
+        for i, data in tqdm(enumerate(train_dataloader), desc='Training', total=len(train_dataloader)):
+            optimizer.zero_grad()
 
-        x = utils.remove_partial_mean_with_mask(x, node_mask, center_of_mass_mask)
-        utils.assert_partial_mean_zero_with_mask(x, node_mask, center_of_mass_mask)
+            x, h, node_mask, fragment_mask, linker_mask, edge_mask, context = preprocess_data(data, hyperparams)
 
-        if hyperparams['data_augmentation']:
-            x = utils.random_rotation(x)
+            delta_log_px, kl_prior, loss_term_t, loss_term_0, l2_loss, noise_t, noise_0 =  model.forward(x, h, node_mask, fragment_mask, linker_mask, edge_mask, context)
 
+            vlb_loss = kl_prior + loss_term_t + loss_term_0 - delta_log_px
+            if hyperparams['diffusion_loss_type'] == 'l2':
+                loss = l2_loss
+            elif hyperparams['diffusion_loss_type'] == 'vlb':
+                loss = vlb_loss
+            else:
+                raise NotImplementedError(hyperparams['diffusion_loss_type'])
 
+            loss.backward()
+            optimizer.step()
 
-        delta_log_px, kl_prior, loss_term_t, loss_term_0, l2_loss, noise_t, noise_0 =  model.forward(x, h, node_mask, fragment_mask, linker_mask, edge_mask, context)
-
-        vlb_loss = kl_prior + loss_term_t + loss_term_0 - delta_log_px
-        if hyperparams['diffusion_loss_type'] == 'l2':
-            loss = l2_loss
-        elif hyperparams['diffusion_loss_type'] == 'vlb':
-            loss = vlb_loss
-        else:
-            raise NotImplementedError(hyperparams['diffusion_loss_type'])
-
-        loss.backward()
-        optimizer.step()
-
-        if i % 10 == 0:
-            print(f'Iteration {i}, loss: {loss.item()}')
+            if i % 10 == 0:
+                print(f'Iteration {i}, loss: {loss.item()}')
         
-        break
+        ## Eval loop
+        val_losses = []
+        model.eval()
+        for i, data in tqdm(enumerate(val_dataloader), desc='Validation', total=len(val_dataloader)):
+            x, h, node_mask, fragment_mask, linker_mask, edge_mask, context = preprocess_data(data, hyperparams)
+            
+            delta_log_px, kl_prior, loss_term_t, loss_term_0, l2_loss, noise_t, noise_0 =  model.forward(x, h, node_mask, fragment_mask, linker_mask, edge_mask, context)
+
+            vlb_loss = kl_prior + loss_term_t + loss_term_0 - delta_log_px
+            if hyperparams['diffusion_loss_type'] == 'l2':
+                loss = l2_loss
+            elif hyperparams['diffusion_loss_type'] == 'vlb':
+                loss = vlb_loss
+            else:
+                raise NotImplementedError(hyperparams['diffusion_loss_type'])
+
+            val_losses.append(loss.item())
+        
+        print(f'Epoch {epoch}, val loss: {sum(val_losses)/len(val_losses)}')
+        if min_val_loss > sum(val_losses)/len(val_losses):
+            min_val_loss = sum(val_losses)/len(val_losses)
+            torch.save(model.state_dict(), 'model.pt')
+            print('Model saved')
+
+        
+        
         
 
 
