@@ -120,7 +120,7 @@ class PredefinedNoiseSchedule(torch.nn.Module):
         # print('gamma', -log_alphas2_to_sigmas2)
 
         self.gamma = torch.nn.Parameter(
-            torch.from_numpy(-log_alphas2_to_sigmas2).float(),
+            torch.from_numpy(-log_alphas2_to_sigmas2).float().to(device),
             requires_grad=False).to(device)
 
     def forward(self, t):
