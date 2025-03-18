@@ -284,7 +284,7 @@ class EDM(torch.nn.Module):
         batch_size = x.size(0)
         degrees_of_freedom_x = self.dimensionality(mask).to(x.device)
         zeros = torch.zeros((batch_size, 1), device=x.device)
-        gamma_0 = self.gamma(zeros)
+        gamma_0 = self.gamma(zeros).to(x.device)
 
         # Recall that sigma_x = sqrt(sigma_0^2 / alpha_0^2) = SNR(-0.5 gamma_0)
         log_sigma_x = 0.5 * gamma_0.view(batch_size)
