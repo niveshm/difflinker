@@ -44,37 +44,37 @@ class EDM(torch.nn.Module):
         self.device = device
 
     def forward(self, x, h, node_mask, fragment_mask, linker_mask, edge_mask, context=None):
+        # Get the device from input tensors
+        device = x.device
+        
         # Normalization and concatenation
         x, h = self.normalize(x, h)
-        xh = torch.cat([x, h], dim=2).to(x.device)
+        xh = torch.cat([x, h], dim=2).to(device)
 
         # Volume change loss term
         delta_log_px = self.delta_log_px(linker_mask).mean()
 
         # Sample t
-        t_int = torch.randint(0, self.T + 1, size=(x.size(0), 1), device=x.device).float()
+        t_int = torch.randint(0, self.T + 1, size=(x.size(0), 1), device=device).float()
         s_int = t_int - 1
         t = t_int / self.T
         s = s_int / self.T
-
-        # # Ensure t_int is on the same device as self.gamma
-        # t_int = t_int.to(self.gamma.device)
 
         # Masks for t=0 and t>0
         t_is_zero = (t_int == 0).squeeze().float()
         t_is_not_zero = 1 - t_is_zero
 
         # Compute gamma_t and gamma_s according to the noise schedule
-        gamma_t = self.inflate_batch_array(self.gamma(t), x)
-        gamma_s = self.inflate_batch_array(self.gamma(s), x)
+        gamma_t = self.inflate_batch_array(self.gamma(t), x).to(device)
+        gamma_s = self.inflate_batch_array(self.gamma(s), x).to(device)
 
         # Compute alpha_t and sigma_t from gamma
-        alpha_t = self.alpha(gamma_t, x)
-        sigma_t = self.sigma(gamma_t, x)
+        alpha_t = self.alpha(gamma_t, x).to(device)
+        sigma_t = self.sigma(gamma_t, x).to(device)
 
         # Sample noise
         # Note: only for linker
-        eps_t = self.sample_combined_position_feature_noise(n_samples=x.size(0), n_nodes=x.size(1), mask=linker_mask)
+        eps_t = self.sample_combined_position_feature_noise(n_samples=x.size(0), n_nodes=x.size(1), mask=linker_mask).to(device)
 
         # Sample z_t given x, h for timestep t, from q(z_t | x, h)
         # Note: keep fragments unchanged
@@ -475,36 +475,36 @@ class EDM(torch.nn.Module):
 
 class InpaintingEDM(EDM):
     def forward(self, x, h, node_mask, fragment_mask, linker_mask, edge_mask, context=None):
+        # Get the device from input tensors
+        device = x.device
+        
         # Normalization and concatenation
         x, h = self.normalize(x, h)
-        xh = torch.cat([x, h], dim=2)
+        xh = torch.cat([x, h], dim=2).to(device)
 
         # Volume change loss term
         delta_log_px = self.delta_log_px(node_mask).mean()
 
         # Sample t
-        t_int = torch.randint(0, self.T + 1, size=(x.size(0), 1), device=x.device).float()
+        t_int = torch.randint(0, self.T + 1, size=(x.size(0), 1), device=device).float()
         s_int = t_int - 1
         t = t_int / self.T
         s = s_int / self.T
-
-        # Ensure t_int is on the same device as self.gamma
-        # t_int = t_int.to(self.gamma.device)
 
         # Masks for t=0 and t>0
         t_is_zero = (t_int == 0).squeeze().float()
         t_is_not_zero = 1 - t_is_zero
 
         # Compute gamma_t and gamma_s according to the noise schedule
-        gamma_t = self.inflate_batch_array(self.gamma(t), x)
-        gamma_s = self.inflate_batch_array(self.gamma(s), x)
+        gamma_t = self.inflate_batch_array(self.gamma(t), x).to(device)
+        gamma_s = self.inflate_batch_array(self.gamma(s), x).to(device)
 
         # Compute alpha_t and sigma_t from gamma
-        alpha_t = self.alpha(gamma_t, x)
-        sigma_t = self.sigma(gamma_t, x)
+        alpha_t = self.alpha(gamma_t, x).to(device)
+        sigma_t = self.sigma(gamma_t, x).to(device)
 
         # Sample noise
-        eps_t = self.sample_combined_position_feature_noise(n_samples=x.size(0), n_nodes=x.size(1), mask=node_mask)
+        eps_t = self.sample_combined_position_feature_noise(n_samples=x.size(0), n_nodes=x.size(1), mask=node_mask).to(device)
 
         # Sample z_t given x, h for timestep t, from q(z_t | x, h)
         # Note: keep fragments unchanged
