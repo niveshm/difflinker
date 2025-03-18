@@ -258,8 +258,8 @@ class EDM(torch.nn.Module):
         """
         # Compute the last alpha value, alpha_T
         ones = torch.ones((xh.size(0), 1), device=xh.device)
-        gamma_T = self.gamma(ones)
-        alpha_T = self.alpha(gamma_T, xh)
+        gamma_T = self.gamma(ones).to(xh.device)
+        alpha_T = self.alpha(gamma_T, xh).to(xh.device)
 
         # Compute means
         mu_T = alpha_T * xh
@@ -271,12 +271,12 @@ class EDM(torch.nn.Module):
 
         # Compute KL for h-part
         zeros, ones = torch.zeros_like(mu_T_h), torch.ones_like(sigma_T_h)
-        kl_distance_h = self.gaussian_kl(mu_T_h, sigma_T_h, zeros, ones)
+        kl_distance_h = self.gaussian_kl(mu_T_h, sigma_T_h, zeros, ones).to(xh.device)
 
         # Compute KL for x-part
         zeros, ones = torch.zeros_like(mu_T_x), torch.ones_like(sigma_T_x)
         d = self.dimensionality(mask)
-        kl_distance_x = self.gaussian_kl_for_dimension(mu_T_x, sigma_T_x, zeros, ones, d=d)
+        kl_distance_x = self.gaussian_kl_for_dimension(mu_T_x, sigma_T_x, zeros, ones, d=d).to(xh.device)
 
         return kl_distance_x + kl_distance_h
 
