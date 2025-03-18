@@ -36,13 +36,17 @@ class EDM(torch.nn.Module):
         self.in_node_nf = in_node_nf
         self.n_dims = n_dims
         self.T = timesteps
-        self.norm_values = norm_values
-        self.norm_biases = norm_biases
+        self.norm_values = torch.tensor(norm_values, device=device)
+        if norm_biases[0] is None:
+            self.norm_biases = (None, torch.tensor(norm_biases[1], device=device), torch.tensor(norm_biases[2], device=device))
+        else:
+            self.norm_biases = tuple(torch.tensor(b, device=device) for b in norm_biases)
+        self.device = device
 
     def forward(self, x, h, node_mask, fragment_mask, linker_mask, edge_mask, context=None):
         # Normalization and concatenation
         x, h = self.normalize(x, h)
-        xh = torch.cat([x, h], dim=2)
+        xh = torch.cat([x, h], dim=2).to(x.device)
 
         # Volume change loss term
         delta_log_px = self.delta_log_px(linker_mask).mean()
@@ -145,11 +149,11 @@ class EDM(torch.nn.Module):
             keep_frames = self.T
         else:
             assert keep_frames <= self.T
-        chain = torch.zeros((keep_frames,) + z.size(), device=z.device)
+        chain = torch.zeros((keep_frames,) + z.size(), device=self.device)
 
         # Sample p(z_s | z_t)
         for s in reversed(range(0, self.T)):
-            s_array = torch.full((n_samples, 1), fill_value=s, device=z.device)
+            s_array = torch.full((n_samples, 1), fill_value=s, device=self.device)
             t_array = s_array + 1
             s_array = s_array / self.T
             t_array = t_array / self.T
@@ -312,9 +316,10 @@ class EDM(torch.nn.Module):
 
         # Compute integrals from 0.5 to 1.5 of the normal distribution
         # N(mean=centered_h_cat, stdev=sigma_0_cat)
+        half = torch.tensor(0.5, device=sigma_0.device)
         log_p_h_proportional = torch.log(
-            self.cdf_standard_gaussian((centered_h + 0.5) / sigma_0) -
-            self.cdf_standard_gaussian((centered_h - 0.5) / sigma_0) +
+            self.cdf_standard_gaussian((centered_h + half) / sigma_0) -
+            self.cdf_standard_gaussian((centered_h - half) / sigma_0) +
             epsilon
         )
 
@@ -570,11 +575,11 @@ class InpaintingEDM(EDM):
             keep_frames = self.T
         else:
             assert keep_frames <= self.T
-        chain = torch.zeros((keep_frames,) + z.size(), device=z.device)
+        chain = torch.zeros((keep_frames,) + z.size(), device=self.device)
 
         # Sample p(z_s | z_t)
         for s in reversed(range(0, self.T)):
-            s_array = torch.full((n_samples, 1), fill_value=s, device=z.device)
+            s_array = torch.full((n_samples, 1), fill_value=s, device=self.device)
             t_array = s_array + 1
             s_array = s_array / self.T
             t_array = t_array / self.T
