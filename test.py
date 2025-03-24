@@ -3,7 +3,7 @@ from rdkit import Chem
 import numpy as np
 from tqdm import tqdm
 from src import const
-from src.datasets import collate_with_fragment_edges, create_templates_for_linker_generation, get_dataloader, parse_molecule
+from src.datasets import collate, collate_with_fragment_edges, create_templates_for_linker_generation, get_dataloader, parse_molecule
 from src.egnn import Dynamics
 from src.edm import EDM
 import os
@@ -27,20 +27,36 @@ def read_molecule(path):
     else:
         raise ValueError('Unsupported file format')
 
-def get_model():
-    hyperparams = {'in_node_nf': 9, 'n_dims': 3, 'context_node_nf': 1, 'hidden_nf': 128, 'activation': 'silu', 'tanh': False, 'n_layers': 6, 'attention': False, 'norm_constant': 1e-06, 'inv_sublayers': 2, 'sin_embedding': False, 'normalization_factor': 100, 'aggregation_method': 'sum', 'diffusion_steps': 500, 'diffusion_noise_schedule': 'polynomial_2', 'diffusion_noise_precision': 1e-05, 'diffusion_loss_type': 'l2', 'normalize_factors': [1, 4, 10], 'include_charges': False, 'model': 'egnn_dynamics', 'data_path': '/home/igashov/work/diffusion_linker_data/e3_ddpm_linker_design/datasets_v2', 'train_data_prefix': 'geom_multifrag_train', 'val_data_prefix': 'geom_multifrag_val', 'batch_size': 64, 'lr': 0.0002, 'torch_device': 'cuda:0', 'test_epochs': 20, 'n_stability_samples': 10, 'normalization': 'batch_norm', 'log_iterations': None, 'samples_dir': '/home/igashov/work/diffusion_linker_data/e3_ddpm_linker_design/logs/samples/geom0_igashov_GEOM_6L_noanch_bs64_date18-08_time19-00-59.926896', 'data_augmentation': False, 'center_of_mass': 'fragments', 'inpainting': False, 'anchors_context': False}
+# def get_model(model_path):
+#     hyperparams = {'in_node_nf': 9, 'n_dims': 3, 'context_node_nf': 1, 'hidden_nf': 128, 'activation': 'silu', 'tanh': False, 'n_layers': 6, 'attention': False, 'norm_constant': 1e-06, 'inv_sublayers': 2, 'sin_embedding': False, 'normalization_factor': 100, 'aggregation_method': 'sum', 'diffusion_steps': 500, 'diffusion_noise_schedule': 'polynomial_2', 'diffusion_noise_precision': 1e-05, 'diffusion_loss_type': 'l2', 'normalize_factors': [1, 4, 10], 'include_charges': False, 'model': 'egnn_dynamics', 'data_path': '/home/igashov/work/diffusion_linker_data/e3_ddpm_linker_design/datasets_v2', 'train_data_prefix': 'geom_multifrag_train', 'val_data_prefix': 'geom_multifrag_val', 'batch_size': 64, 'lr': 0.0002, 'torch_device': 'cuda:0', 'test_epochs': 20, 'n_stability_samples': 10, 'normalization': 'batch_norm', 'log_iterations': None, 'samples_dir': '/home/igashov/work/diffusion_linker_data/e3_ddpm_linker_design/logs/samples/geom0_igashov_GEOM_6L_noanch_bs64_date18-08_time19-00-59.926896', 'data_augmentation': False, 'center_of_mass': 'fragments', 'inpainting': False, 'anchors_context': False}
+#     # n_dims = 3
+#     # in_node_nf = 9 #const.GEOM_NUMBER_OF_ATOM_TYPES + const.NUMBER_OF_ATOM_TYPES
+
+#     dynamics = Dynamics(n_dims=hyperparams['n_dims'], in_node_nf=hyperparams['in_node_nf'], context_node_nf=hyperparams['context_node_nf'], hidden_nf=hyperparams['hidden_nf'], n_layers=hyperparams['n_layers'])
+
+#     edm = EDM(n_dims=3, in_node_nf=hyperparams['in_node_nf'], loss_type=hyperparams['diffusion_loss_type'], timesteps=hyperparams['diffusion_steps'], noise_schedule=hyperparams['diffusion_noise_schedule'], noise_precision=hyperparams['diffusion_noise_precision'], dynamics=dynamics, norm_values=hyperparams['normalize_factors'])
+
+#     edm = edm.load_state_dict(torch.load(model_path, map_location='cpu', weights_only=True))
+
+#     return edm
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def get_model(hyperparams):
+    
     # n_dims = 3
     # in_node_nf = 9 #const.GEOM_NUMBER_OF_ATOM_TYPES + const.NUMBER_OF_ATOM_TYPES
 
-    dynamics = Dynamics(n_dims=hyperparams['n_dims'], in_node_nf=hyperparams['in_node_nf'], context_node_nf=hyperparams['context_node_nf'], hidden_nf=hyperparams['hidden_nf'], n_layers=hyperparams['n_layers'])
+    dynamics = Dynamics(n_dims=hyperparams['n_dims'], in_node_nf=hyperparams['in_node_nf'], context_node_nf=hyperparams['context_node_nf'], hidden_nf=hyperparams['hidden_nf'], n_layers=hyperparams['n_layers'], device=device)
 
     edm = EDM(n_dims=3, in_node_nf=hyperparams['in_node_nf'], loss_type=hyperparams['diffusion_loss_type'], timesteps=hyperparams['diffusion_steps'], noise_schedule=hyperparams['diffusion_noise_schedule'], noise_precision=hyperparams['diffusion_noise_precision'], dynamics=dynamics, norm_values=hyperparams['normalize_factors'])
 
     return edm
     
 
-def main(input_path, model_path, output_dir, n_samples, n_steps, linker_size, anchors):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def main(input_path, model_path, output_dir, n_samples, n_steps, linker_size, anchors, hyperparams):
+    
+    print(device)
     os.makedirs(output_dir, exist_ok=True)
 
     mol = read_molecule(input_path)
@@ -75,14 +91,18 @@ def main(input_path, model_path, output_dir, n_samples, n_steps, linker_size, an
         'num_atoms': len(positions),
     }] * n_samples
 
-    dataloader = get_dataloader(dataset, batch_size=n_samples, collate_fn=collate_with_fragment_edges)
+    dataloader = get_dataloader(dataset, batch_size=n_samples, collate_fn=collate)
 
     # ddpm = DDPM.load_from_checkpoint(model, map_location=device, strict=False).eval().to(device)
     # ddpm = DDPM.load_from_checkpoint(model, map_location=device).eval().to(device)
     # breakpoint()
     # breakpoint()
 
-    model = get_model()
+    model = get_model(hyperparams)
+
+    model.load_state_dict(torch.load('models/geom_diffliner_state_dict.pt', map_location='cpu', weights_only=True))
+    model = model.to(device)
+    breakpoint()
 
     # breakpoint()
     # model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
@@ -115,11 +135,12 @@ def main(input_path, model_path, output_dir, n_samples, n_steps, linker_size, an
         context = fragment_mask
         # breakpoint()
 
-        res = model.forward(x, h, node_mask, fragment_mask, linker_mask, edge_mask, context)
+        # res = model.forward(x, h, node_mask, fragment_mask, linker_mask, edge_mask, context)
 
         # breakpoint()
 
         chain = model.sample_chain(x, h, node_mask, fragment_mask, linker_mask, edge_mask, context)
+        # breakpoint()
 
         x = chain[0][:, :, :3]
         h = chain[0][:, :, 3:]
@@ -147,4 +168,5 @@ def main(input_path, model_path, output_dir, n_samples, n_steps, linker_size, an
 
 
 if __name__ == '__main__':
-    main('./sample_data/5ou2_fragments_input.sdf', './models/geom_diffliner_state_dict.pt', 'output', 5, 1, 3, None)
+    hyperparams = {'in_node_nf': 9, 'n_dims': 3, 'context_node_nf': 1, 'hidden_nf': 128, 'activation': 'silu', 'tanh': False, 'n_layers': 6, 'attention': False, 'norm_constant': 1e-06, 'inv_sublayers': 2, 'sin_embedding': False, 'normalization_factor': 100, 'aggregation_method': 'sum', 'diffusion_steps': 500, 'diffusion_noise_schedule': 'polynomial_2', 'diffusion_noise_precision': 1e-05, 'diffusion_loss_type': 'l2', 'normalize_factors': [1, 4, 10], 'include_charges': False, 'model': 'egnn_dynamics', 'data_path': '/home/igashov/work/diffusion_linker_data/e3_ddpm_linker_design/datasets_v2', 'train_data_prefix': 'geom_multifrag_train', 'val_data_prefix': 'geom_multifrag_val', 'batch_size': 4, 'lr': 0.0002, 'torch_device': 'cuda:0', 'test_epochs': 20, 'n_stability_samples': 10, 'normalization': 'batch_norm', 'log_iterations': None, 'samples_dir': '/home/igashov/work/diffusion_linker_data/e3_ddpm_linker_design/logs/samples/geom0_igashov_GEOM_6L_noanch_bs64_date18-08_time19-00-59.926896', 'data_augmentation': False, 'center_of_mass': 'fragments', 'inpainting': False, 'anchors_context': False}
+    main('./sample_data/5ou2_fragments_input.sdf', './model.pt', 'output', 5, 1, 3, None, hyperparams)
